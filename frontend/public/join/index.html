@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Join the queue</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f6f8fa;
+    color: #1a1a1a;
+    padding: 1rem;
+    padding-bottom: 3rem;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 0.75rem; }
+  h2 { font-size: 1.1rem; margin: 1rem 0 0.5rem; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+  .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .tab {
+    flex: 1; padding: 0.75rem; text-align: center; border-radius: 10px; border: 1px solid #ccc;
+    background: #fff; font-size: 1rem; cursor: pointer;
+  }
+  .tab.active { background: #0969da; color: #fff; border-color: #0969da; }
+  .hidden { display: none !important; }
+  button {
+    min-height: 52px; font-size: 1rem; border-radius: 10px; border: 1px solid #ccc;
+    background: #f0f2f5; cursor: pointer; padding: 0 1rem;
+  }
+  button.primary { background: #0969da; color: #fff; border-color: #0969da; font-weight: bold; width: 100%; }
+  button.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+  button.choice { text-align: left; width: 100%; margin-bottom: 0.5rem; }
+  button.choice.selected { background: #0969da; color: #fff; border-color: #0969da; }
+  input, select {
+    width: 100%; font-size: 1rem; padding: 0.6rem; border-radius: 8px; border: 1px solid #ccc; margin-bottom: 0.75rem;
+  }
+  label { font-size: 0.9rem; opacity: 0.8; display: block; margin-bottom: 0.25rem; }
+  .wait-row { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid #eee; }
+  .token-display { text-align: center; padding: 1.5rem 0; }
+  .token-number { font-size: 4rem; font-weight: 900; color: #0969da; line-height: 1; }
+  .muted { opacity: 0.7; font-size: 0.9rem; }
+  .error { background: #fee2e2; color: #991b1b; padding: 0.6rem 0.8rem; border-radius: 8px; margin-bottom: 0.75rem; }
+  .lang-toggle { display: flex; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .lang-toggle button { min-height: 36px; padding: 0.2rem 0.75rem; font-size: 0.85rem; }
+  [dir="rtl"] .choice { text-align: right; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+</style>
+</head>
+<body>
+  <div class="lang-toggle">
+    <button id="lang-en" onclick="setLang('en')">EN</button>
+    <button id="lang-ur" onclick="setLang('ur')">اردو</button>
+  </div>
+
+  <h1 id="shop-title">Loading…</h1>
+
+  <div class="tabs">
+    <div class="tab active" id="tab-join" onclick="showTab('join')" data-i18n="tabJoin">Join the queue</div>
+    <div class="tab" id="tab-book" onclick="showTab('book')" data-i18n="tabBook">Book for later</div>
+  </div>
+
+  <div id="disabled-notice" class="card hidden">
+    <p id="disabled-text"></p>
+  </div>
+
+  <!-- JOIN PANEL -->
+  <div id="panel-join">
+    <div id="join-form-card" class="card">
+      <h2 data-i18n="waitTimes">Current wait</h2>
+      <div id="wait-list"></div>
+
+      <div id="join-error" class="error hidden"></div>
+
+      <label data-i18n="phoneLabel">Phone number</label>
+      <input id="join-phone" type="tel" inputmode="numeric" placeholder="03xxxxxxxxx" />
+
+      <label data-i18n="nameLabel">Name (optional)</label>
+      <input id="join-name" type="text" />
+
+      <label data-i18n="serviceLabel">Service</label>
+      <div id="join-services"></div>
+
+      <label data-i18n="barberLabel">Barber</label>
+      <div id="join-barbers"></div>
+
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;">
+        <input id="join-consent" type="checkbox" style="width:auto;margin:0;" />
+        <span data-i18n="consentLabel">I agree to receive WhatsApp messages about my visit</span>
+      </label>
+
+      <button class="primary" id="join-submit" onclick="submitJoin()" data-i18n="joinButton">Join the queue</button>
+    </div>
+
+    <div id="join-status-card" class="card hidden">
+      <div class="token-display">
+        <div class="token-number" id="status-token">—</div>
+        <div class="muted" id="status-line"></div>
+      </div>
+      <p class="muted" data-i18n="watchScreen">Watch for your number on the shop screen.</p>
+      <button class="danger" style="width:100%" onclick="leaveQueue()" data-i18n="leaveButton">Leave the queue</button>
+    </div>
+  </div>
+
+  <!-- BOOK PANEL -->
+  <div id="panel-book" class="hidden">
+    <div id="book-form-card" class="card">
+      <div id="book-error" class="error hidden"></div>
+
+      <label data-i18n="serviceLabel">Service</label>
+      <div id="book-services"></div>
+
+      <label data-i18n="dateLabel">Date</label>
+      <input id="book-date" type="date" onchange="loadBookBarbers()" />
+
+      <label data-i18n="barberLabel">Barber</label>
+      <div id="book-barbers"></div>
+
+      <label data-i18n="timeLabel">Time</label>
+      <div id="book-slots"></div>
+
+      <label data-i18n="phoneLabel">Phone number</label>
+      <input id="book-phone" type="tel" inputmode="numeric" placeholder="03xxxxxxxxx" />
+
+      <label data-i18n="nameLabel">Name (optional)</label>
+      <input id="book-name" type="text" />
+
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;">
+        <input id="book-consent" type="checkbox" style="width:auto;margin:0;" />
+        <span data-i18n="consentLabel">I agree to receive WhatsApp messages about my visit</span>
+      </label>
+
+      <button class="primary" id="book-submit" onclick="submitBooking()" data-i18n="bookButton">Book appointment</button>
+    </div>
+
+    <div id="book-status-card" class="card hidden">
+      <h2 data-i18n="bookingConfirmed">Booking confirmed</h2>
+      <p id="book-summary"></p>
+      <button class="danger" style="width:100%" onclick="cancelBooking()" data-i18n="cancelButton">Cancel booking</button>
+    </div>
+  </div>
+
+<script>
+const I18N = {
+  en: {
+    tabJoin: 'Join the queue', tabBook: 'Book for later', waitTimes: 'Current wait',
+    phoneLabel: 'Phone number', nameLabel: 'Name (optional)', serviceLabel: 'Service',
+    barberLabel: 'Barber', anyBarber: 'Any barber', joinButton: 'Join the queue',
+    consentLabel: 'I agree to receive WhatsApp messages about my visit',
+    watchScreen: 'Watch for your number on the shop screen.', leaveButton: 'Leave the queue',
+    dateLabel: 'Date', timeLabel: 'Time', bookButton: 'Book appointment',
+    bookingConfirmed: 'Booking confirmed', cancelButton: 'Cancel booking',
+    position: 'Position', estWait: 'Estimated wait', minutes: 'min', youAreUp: "You're up!",
+    selfJoinOff: 'Online check-in is currently off. Please come to the counter.',
+    genericError: 'Something went wrong. Please try again or see the counter.',
+    minToWait: 'min wait', pickService: 'Pick a service', pickBarber: 'Pick a barber',
+  },
+  ur: {
+    tabJoin: 'قطار میں شامل ہوں', tabBook: 'وقت مقرر کریں', waitTimes: 'موجودہ انتظار',
+    phoneLabel: 'فون نمبر', nameLabel: 'نام (اختیاری)', serviceLabel: 'سروس',
+    barberLabel: 'حجام', anyBarber: 'کوئی بھی حجام', joinButton: 'قطار میں شامل ہوں',
+    consentLabel: 'میں اپنی وزٹ کے بارے میں واٹس ایپ پیغامات وصول کرنے پر راضی ہوں',
+    watchScreen: 'اپنا نمبر دکان کی اسکرین پر دیکھیں۔', leaveButton: 'قطار چھوڑیں',
+    dateLabel: 'تاریخ', timeLabel: 'وقت', bookButton: 'بکنگ کریں',
+    bookingConfirmed: 'بکنگ کی تصدیق ہو گئی', cancelButton: 'بکنگ منسوخ کریں',
+    position: 'پوزیشن', estWait: 'تخمینی انتظار', minutes: 'منٹ', youAreUp: 'اب آپ کی باری ہے!',
+    selfJoinOff: 'آن لائن اندراج فی الحال بند ہے۔ براہ کرم کاؤنٹر پر تشریف لائیں۔',
+    genericError: 'کچھ غلط ہو گیا۔ دوبارہ کوشش کریں یا کاؤنٹر پر رابطہ کریں۔',
+    minToWait: 'منٹ انتظار', pickService: 'سروس منتخب کریں', pickBarber: 'حجام منتخب کریں',
+  },
+};
+
+let lang = localStorage.getItem('barber_lang') || 'en';
+let shopInfo = null;
+let selectedServiceId = null;
+let selectedBarberId = undefined; // undefined = not chosen, null = "any barber"
+let statusPollTimer = null;
+
+function t(key) { return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key; }
+
+function setLang(newLang) {
+  lang = newLang;
+  localStorage.setItem('barber_lang', lang);
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ur' ? 'rtl' : 'ltr');
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    el.textContent = t(el.getAttribute('data-i18n'));
+  });
+  document.getElementById('lang-en').style.fontWeight = lang === 'en' ? 'bold' : 'normal';
+  document.getElementById('lang-ur').style.fontWeight = lang === 'ur' ? 'bold' : 'normal';
+  if (shopInfo) renderShop();
+}
+
+function showTab(tab) {
+  document.getElementById('tab-join').classList.toggle('active', tab === 'join');
+  document.getElementById('tab-book').classList.toggle('active', tab === 'book');
+  document.getElementById('panel-join').classList.toggle('hidden', tab !== 'join');
+  document.getElementById('panel-book').classList.toggle('hidden', tab !== 'book');
+}
+
+function getQrTokenFromUrl() {
+  return new URLSearchParams(window.location.search).get('t');
+}
+
+function getStoredEntryToken() {
+  return new URLSearchParams(window.location.search).get('entry') || localStorage.getItem('barber_queue_token');
+}
+
+function storeEntryToken(token) {
+  localStorage.setItem('barber_queue_token', token);
+  document.cookie = `barber_queue_token=${token};path=/;max-age=86400`;
+  const url = new URL(window.location.href);
+  url.searchParams.set('entry', token);
+  window.history.replaceState({}, '', url);
+}
+
+function clearStoredEntryToken() {
+  localStorage.removeItem('barber_queue_token');
+  document.cookie = 'barber_queue_token=;path=/;max-age=0';
+  const url = new URL(window.location.href);
+  url.searchParams.delete('entry');
+  window.history.replaceState({}, '', url);
+}
+
+async function loadShop() {
+  try {
+    const res = await fetch('/api/public/shop');
+    shopInfo = await res.json();
+    document.getElementById('shop-title').textContent = shopInfo.shopName || 'Barber shop';
+
+    if (!shopInfo.selfJoinEnabled) {
+      document.getElementById('disabled-notice').classList.remove('hidden');
+      const hours = `${shopInfo.openingTime?.slice(0, 5)}–${shopInfo.closingTime?.slice(0, 5)}`;
+      document.getElementById('disabled-text').textContent = `${t('selfJoinOff')} (${hours})`;
+      document.getElementById('join-form-card').classList.add('hidden');
+    }
+
+    renderShop();
+    populateServiceButtons('join-services', (id) => { selectedServiceId = id; });
+    populateBarberButtons('join-barbers', shopInfo.barbers, (id) => { selectedBarberId = id; });
+    populateServiceButtons('book-services', (id) => { selectedServiceId = id; loadBookSlots(); });
+  } catch (err) {
+    document.getElementById('shop-title').textContent = 'Barber shop';
+  }
+}
+
+function renderShop() {
+  const list = document.getElementById('wait-list');
+  list.innerHTML = '';
+  if (!shopInfo || !shopInfo.selfJoinEnabled) return;
+  for (const b of shopInfo.barbers) {
+    const row = document.createElement('div');
+    row.className = 'wait-row';
+    row.innerHTML = `<span>${b.displayName}</span><span>~${b.waitMinutes} ${t('minutes')}</span>`;
+    list.appendChild(row);
+  }
+  if (shopInfo.sharedWaitMinutes !== null) {
+    const row = document.createElement('div');
+    row.className = 'wait-row';
+    row.innerHTML = `<span>${t('anyBarber')}</span><span>~${shopInfo.sharedWaitMinutes} ${t('minutes')}</span>`;
+    list.appendChild(row);
+  }
+}
+
+function populateServiceButtons(containerId, onPick) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  for (const s of shopInfo.services) {
+    const btn = document.createElement('button');
+    btn.className = 'choice';
+    btn.textContent = `${s.name} — ${s.durationMinutes} ${t('minutes')}`;
+    btn.onclick = () => {
+      container.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      onPick(s.id);
+    };
+    container.appendChild(btn);
+  }
+}
+
+function populateBarberButtons(containerId, barbers, onPick) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = '';
+  const anyBtn = document.createElement('button');
+  anyBtn.className = 'choice';
+  anyBtn.textContent = t('anyBarber');
+  anyBtn.onclick = () => {
+    container.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
+    anyBtn.classList.add('selected');
+    onPick(null);
+  };
+  container.appendChild(anyBtn);
+  for (const b of barbers) {
+    const btn = document.createElement('button');
+    btn.className = 'choice';
+    btn.textContent = `${b.displayName} (~${b.waitMinutes} ${t('minutes')})`;
+    btn.onclick = () => {
+      container.querySelectorAll('button').forEach((x) => x.classList.remove('selected'));
+      btn.classList.add('selected');
+      onPick(b.id || b.barberId);
+    };
+    container.appendChild(btn);
+  }
+}
+
+function showError(elId, message) {
+  const el = document.getElementById(elId);
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+function hideError(elId) {
+  document.getElementById(elId).classList.add('hidden');
+}
+
+async function submitJoin() {
+  hideError('join-error');
+  const phone = document.getElementById('join-phone').value.trim();
+  const name = document.getElementById('join-name').value.trim();
+  const consent = document.getElementById('join-consent').checked;
+  const qrToken = getQrTokenFromUrl();
+
+  if (!phone || !selectedServiceId) {
+    showError('join-error', t('pickService'));
+    return;
+  }
+  if (!qrToken) {
+    showError('join-error', 'Missing QR code. Please scan the code on the shop screen.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/public/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        t: qrToken, phone, name, service_id: selectedServiceId, barber_id: selectedBarberId ?? null,
+        consent_messages: consent,
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      showError('join-error', body.error || t('genericError'));
+      return;
+    }
+    storeEntryToken(body.publicToken);
+    showJoinStatus(body);
+    startStatusPolling();
+  } catch {
+    showError('join-error', t('genericError'));
+  }
+}
+
+function showJoinStatus(entry) {
+  document.getElementById('join-form-card').classList.add('hidden');
+  document.getElementById('join-status-card').classList.remove('hidden');
+  document.getElementById('status-token').textContent = '#' + entry.tokenNumber;
+  if (entry.status === 'serving') {
+    document.getElementById('status-line').textContent = t('youAreUp');
+  } else if (entry.status === 'waiting') {
+    document.getElementById('status-line').textContent =
+      `${t('position')}: ${entry.position} · ${t('estWait')}: ~${entry.estimatedWaitMinutes} ${t('minutes')}`;
+  } else {
+    document.getElementById('status-line').textContent = entry.status;
+  }
+}
+
+function startStatusPolling() {
+  if (statusPollTimer) clearInterval(statusPollTimer);
+  statusPollTimer = setInterval(pollStatus, 10000); // 10s — this runs on mobile data
+}
+
+async function pollStatus() {
+  const token = getStoredEntryToken();
+  if (!token) return;
+  try {
+    const res = await fetch(`/api/public/queue/${token}`);
+    if (!res.ok) {
+      clearInterval(statusPollTimer);
+      clearStoredEntryToken();
+      return;
+    }
+    const entry = await res.json();
+    if (['done', 'cancelled', 'missed'].includes(entry.status)) {
+      clearInterval(statusPollTimer);
+      clearStoredEntryToken();
+      document.getElementById('join-status-card').classList.add('hidden');
+      document.getElementById('join-form-card').classList.remove('hidden');
+      return;
+    }
+    showJoinStatus(entry);
+  } catch {
+    // keep showing the last known state — never show stale data as if live without a signal
+  }
+}
+
+async function leaveQueue() {
+  const token = getStoredEntryToken();
+  if (!token) return;
+  await fetch(`/api/public/queue/${token}`, { method: 'DELETE' }).catch(() => {});
+  clearInterval(statusPollTimer);
+  clearStoredEntryToken();
+  document.getElementById('join-status-card').classList.add('hidden');
+  document.getElementById('join-form-card').classList.remove('hidden');
+}
+
+async function loadBookBarbers() {
+  const date = document.getElementById('book-date').value;
+  if (!date) return;
+  try {
+    const res = await fetch(`/api/public/barbers?date=${date}`);
+    const body = await res.json();
+    populateBarberButtons('book-barbers', body.barbers, (id) => {
+      window.__bookBarberId = id;
+      loadBookSlots();
+    });
+  } catch {
+    /* leave list empty on failure */
+  }
+}
+
+async function loadBookSlots() {
+  const date = document.getElementById('book-date').value;
+  const barberId = window.__bookBarberId;
+  const container = document.getElementById('book-slots');
+  container.innerHTML = '';
+  if (!date || !barberId || !selectedServiceId) return;
+  try {
+    const res = await fetch(`/api/public/slots?barber_id=${barberId}&date=${date}&service_id=${selectedServiceId}`);
+    const body = await res.json();
+    for (const slot of body.slots) {
+      const btn = document.createElement('button');
+      btn.className = 'choice';
+      const d = new Date(slot);
+      btn.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      btn.onclick = () => {
+        container.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        window.__bookSlot = slot;
+      };
+      container.appendChild(btn);
+    }
+  } catch {
+    /* leave list empty on failure */
+  }
+}
+
+async function submitBooking() {
+  hideError('book-error');
+  const phone = document.getElementById('book-phone').value.trim();
+  const name = document.getElementById('book-name').value.trim();
+  const consent = document.getElementById('book-consent').checked;
+  const barberId = window.__bookBarberId;
+  const startsAt = window.__bookSlot;
+
+  if (!phone || !selectedServiceId || !barberId || !startsAt) {
+    showError('book-error', t('pickBarber'));
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/public/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone, name, service_id: selectedServiceId, barber_id: barberId, starts_at: startsAt,
+        consent_messages: consent,
+      }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      showError('book-error', body.error || t('genericError'));
+      return;
+    }
+    localStorage.setItem('barber_booking_token', body.publicToken);
+    showBookingStatus(body);
+  } catch {
+    showError('book-error', t('genericError'));
+  }
+}
+
+function showBookingStatus(appt) {
+  document.getElementById('book-form-card').classList.add('hidden');
+  document.getElementById('book-status-card').classList.remove('hidden');
+  const d = new Date(appt.startsAt);
+  document.getElementById('book-summary').textContent =
+    `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} — ${appt.barberName} — ${appt.serviceName}`;
+}
+
+async function cancelBooking() {
+  const token = localStorage.getItem('barber_booking_token');
+  if (!token) return;
+  await fetch(`/api/public/appointments/${token}`, { method: 'DELETE' }).catch(() => {});
+  localStorage.removeItem('barber_booking_token');
+  document.getElementById('book-status-card').classList.add('hidden');
+  document.getElementById('book-form-card').classList.remove('hidden');
+}
+
+// Boot
+setLang(lang);
+loadShop().then(() => {
+  const existingEntry = getStoredEntryToken();
+  if (existingEntry) {
+    fetch(`/api/public/queue/${existingEntry}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((entry) => {
+        if (entry && ['waiting', 'serving'].includes(entry.status)) {
+          showJoinStatus(entry);
+          startStatusPolling();
+        } else {
+          clearStoredEntryToken();
+        }
+      })
+      .catch(() => {});
+  }
+});
+const today = new Date().toISOString().slice(0, 10);
+document.getElementById('book-date').value = today;
+document.getElementById('book-date').min = today;
+</script>
+</body>
+</html>

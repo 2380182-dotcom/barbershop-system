@@ -3,13 +3,14 @@ import bcrypt from 'bcrypt';
 import { pool } from '../db/pool.js';
 import { logAudit } from '../lib/audit.js';
 import { requireRole } from '../middleware/auth.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
 
 const router = Router();
 const BCRYPT_COST = 12;
 
 router.use(requireRole('owner'));
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     `select b.*, u.username, u.role as user_role
      from barbers b
@@ -17,9 +18,9 @@ router.get('/', async (req, res) => {
      order by b.sort_order, b.created_at`
   );
   res.json({ barbers: rows });
-});
+}));
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const { displayName, workingDays, sortOrder, username, password } = req.body || {};
   if (!displayName) {
     return res.status(400).json({ error: 'displayName is required' });
@@ -68,9 +69,9 @@ router.post('/', async (req, res) => {
   } finally {
     client.release();
   }
-});
+}));
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', asyncHandler(async (req, res) => {
   const { displayName, workingDays, sortOrder, active } = req.body || {};
   const fields = [];
   const values = [];
@@ -107,9 +108,9 @@ router.put('/:id', async (req, res) => {
   });
 
   res.json({ barber: rows[0] });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     `update barbers set active = false where id = $1 returning *`,
     [req.params.id]
@@ -126,6 +127,6 @@ router.delete('/:id', async (req, res) => {
   });
 
   res.json({ barber: rows[0] });
-});
+}));
 
 export default router;

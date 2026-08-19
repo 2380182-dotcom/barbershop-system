@@ -8,13 +8,20 @@ export function Layout() {
     <div>
       <header style={{ display: 'flex', gap: '1rem', alignItems: 'center', padding: '1rem', borderBottom: '1px solid #ccc' }}>
         <strong>Barber Shop Admin</strong>
-        {user?.role === 'owner' && (
-          <nav style={{ display: 'flex', gap: '1rem' }}>
-            <Link to="/settings">Shop Settings</Link>
-            <Link to="/barbers">Barbers</Link>
-            <Link to="/services">Services</Link>
-          </nav>
-        )}
+        <nav style={{ display: 'flex', gap: '1rem' }}>
+          <Link to="/tablet">Queue</Link>
+          <Link to="/appointments">Appointments</Link>
+          {user?.role === 'owner' && (
+            <>
+              <Link to="/dashboard">Dashboard</Link>
+              <Link to="/attendance">Attendance</Link>
+              <Link to="/customers">Customers</Link>
+              <Link to="/settings">Shop Settings</Link>
+              <Link to="/barbers">Barbers</Link>
+              <Link to="/services">Services</Link>
+            </>
+          )}
+        </nav>
         <span style={{ marginLeft: 'auto' }}>
           {user ? (
             <>

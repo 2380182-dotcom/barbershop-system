@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Face shape scan</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0a0a0a; color: #fff; padding: 1rem;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 1rem; }
+  .stage { position: relative; width: 100%; max-width: 480px; margin: 0 auto; border-radius: 16px; overflow: hidden; background: #111; }
+  video, canvas { width: 100%; display: block; }
+  canvas.overlay { position: absolute; top: 0; left: 0; }
+  .status-banner {
+    text-align: center; padding: 0.75rem; border-radius: 10px; margin: 1rem auto; max-width: 480px; font-size: 1rem;
+  }
+  .status-idle { background: #1f2937; }
+  .status-reject { background: #7f1d1d; }
+  .status-ok { background: #14532d; }
+  .card { background: #171717; border-radius: 12px; padding: 1rem; max-width: 480px; margin: 1rem auto; }
+  button {
+    min-height: 56px; font-size: 1rem; border-radius: 10px; border: none; cursor: pointer; padding: 0 1rem; width: 100%;
+    margin-bottom: 0.5rem;
+  }
+  button.primary { background: #0969da; color: #fff; font-weight: bold; }
+  button.secondary { background: #333; color: #fff; }
+  .shape-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
+  .shape-chip {
+    padding: 0.5rem 0.9rem; border-radius: 999px; border: 1px solid #444; background: #222; color: #fff; cursor: pointer;
+  }
+  .shape-chip.selected { background: #0969da; border-color: #0969da; }
+  .suggestion { border-bottom: 1px solid #333; padding: 0.6rem 0; }
+  label { display: block; margin: 0.5rem 0 0.25rem; font-size: 0.9rem; opacity: 0.85; }
+  input[type="tel"] { width: 100%; padding: 0.6rem; border-radius: 8px; border: 1px solid #444; background: #111; color: #fff; }
+  .consent-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0.75rem 0; }
+  .muted { opacity: 0.65; font-size: 0.85rem; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <h1>Face shape scan</h1>
+  <p class="muted">This runs on this device. The image never leaves it unless you choose to save a photo below.</p>
+
+  <div class="stage" id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas class="overlay" id="overlay"></canvas>
+  </div>
+
+  <div class="status-banner status-idle" id="status-banner">Starting camera…</div>
+
+  <div class="card hidden" id="result-card">
+    <p id="result-heading">Your face looks closest to <strong id="result-shape"></strong>.</p>
+    <p class="muted" id="result-alternate hidden"></p>
+
+    <div class="shape-row" id="shape-override"></div>
+    <p class="muted">Not quite right? Tap the shape that fits best.</p>
+
+    <h3>Suggested styles</h3>
+    <div id="suggestions"></div>
+
+    <label class="consent-row">
+      <input type="checkbox" id="consent-photo" style="width:auto;" />
+      Save a photo with this scan
+    </label>
+
+    <label>Phone number (optional — links this to your profile)</label>
+    <input type="tel" id="phone" inputmode="numeric" placeholder="03xxxxxxxxx" />
+
+    <button class="primary" id="save-btn">Save</button>
+    <button class="secondary" id="retry-btn">Scan again</button>
+  </div>
+
+<script type="module">
+import { FilesetResolver, FaceLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+import { checkQuality, computeRatios, computeJawCornerAngleDegrees, classifyShape, getSuggestedStyles } from './classify.js';
+import { THRESHOLDS } from './thresholds.js';
+
+const SHAPES = ['oval', 'round', 'square', 'oblong', 'heart', 'diamond'];
+
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const statusBanner = document.getElementById('status-banner');
+const resultCard = document.getElementById('result-card');
+const stage = document.getElementById('stage');
+
+let faceLandmarker = null;
+let running = true;
+let capturedResult = null; // { detectedShape, alternateShape, ratios, jawAngle }
+let capturedFrameCanvas = null;
+
+function setStatus(text, kind) {
+  statusBanner.textContent = text;
+  statusBanner.className = `status-banner status-${kind}`;
+}
+
+function meanBrightness(canvas) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let sum = 0;
+  const step = 4 * 20; // sample every 20th pixel for speed
+  let count = 0;
+  for (let i = 0; i < data.length; i += step) {
+    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    count++;
+  }
+  return count ? sum / count : 0;
+}
+
+async function init() {
+  try {
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+    );
+    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath:
+          'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+        delegate: 'GPU',
+      },
+      runningMode: 'VIDEO',
+      numFaces: 2, // >1 face in frame must be detectable, per the quality gate
+    });
+  } catch (err) {
+    setStatus('Could not load the face model. Check your connection and reload.', 'reject');
+    console.error(err);
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    overlay.width = video.videoWidth || 480;
+    overlay.height = video.videoHeight || 360;
+    setStatus('Look straight at the camera.', 'idle');
+    requestAnimationFrame(loop);
+  } catch (err) {
+    setStatus('Camera access is needed for this. Please allow it and reload.', 'reject');
+    console.error(err);
+  }
+}
+
+function loop() {
+  if (!running || !faceLandmarker || video.readyState < 2) {
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  const nowMs = performance.now();
+  const results = faceLandmarker.detectForVideo(video, nowMs);
+  const faceLandmarksList = results.faceLandmarks || [];
+
+  const frameCanvas = document.createElement('canvas');
+  frameCanvas.width = video.videoWidth;
+  frameCanvas.height = video.videoHeight;
+  frameCanvas.getContext('2d').drawImage(video, 0, 0);
+  const brightness = meanBrightness(frameCanvas);
+
+  const quality = checkQuality({ faceLandmarksList, meanBrightness: brightness }, THRESHOLDS);
+
+  if (!quality.ok) {
+    setStatus(rejectMessage(quality), 'reject');
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  setStatus('Hold still…', 'ok');
+
+  const landmarks = faceLandmarksList[0];
+  const ratios = computeRatios(landmarks);
+  const jawAngle = computeJawCornerAngleDegrees(landmarks);
+  const classification = classifyShape(ratios, jawAngle, THRESHOLDS);
+
+  console.log('[face-scan] ratios', ratios, 'jawAngle', jawAngle, 'classification', classification);
+
+  capturedResult = { ...classification, ratios, jawAngle };
+  capturedFrameCanvas = frameCanvas;
+  running = false;
+  showResult(capturedResult);
+}
+
+function rejectMessage(quality) {
+  switch (quality.reason) {
+    case 'no_face':
+      return 'No face detected. Please step into frame.';
+    case 'multiple_faces':
+      return 'More than one face detected. Please scan one person at a time.';
+    case 'face_turned':
+      return 'Please look straight at the camera.';
+    case 'too_dark':
+      return 'It\'s too dark here. Please move to better light.';
+    case 'low_confidence':
+      return 'Having trouble getting a clear view. Please hold still.';
+    default:
+      return 'Please retry.';
+  }
+}
+
+function showResult(result) {
+  stage.classList.add('hidden');
+  resultCard.classList.remove('hidden');
+  statusBanner.classList.add('hidden');
+  renderResult(result.shape, result.alternateShape, result.uncertain);
+}
+
+function renderResult(shape, alternateShape, uncertain) {
+  document.getElementById('result-shape').textContent = shape;
+  const altEl = document.getElementById('result-alternate');
+  if (uncertain && alternateShape) {
+    altEl.textContent = `It could also be closer to ${alternateShape} — pick whichever looks right below.`;
+    altEl.classList.remove('hidden');
+  } else {
+    altEl.classList.add('hidden');
+  }
+
+  const overrideContainer = document.getElementById('shape-override');
+  overrideContainer.innerHTML = '';
+  for (const s of SHAPES) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'shape-chip' + (s === shape ? ' selected' : '');
+    chip.textContent = s;
+    chip.style.width = 'auto';
+    chip.style.minHeight = '44px';
+    chip.onclick = () => {
+      overrideContainer.querySelectorAll('.shape-chip').forEach((c) => c.classList.remove('selected'));
+      chip.classList.add('selected');
+      capturedResult.correctedShape = s;
+      renderSuggestions(s);
+    };
+    overrideContainer.appendChild(chip);
+  }
+
+  renderSuggestions(shape);
+}
+
+function renderSuggestions(shape) {
+  const container = document.getElementById('suggestions');
+  container.innerHTML = '';
+  for (const style of getSuggestedStyles(shape)) {
+    const row = document.createElement('div');
+    row.className = 'suggestion';
+    row.innerHTML = `<strong>${style.sides}</strong> · ${style.top}`;
+    container.appendChild(row);
+  }
+}
+
+document.getElementById('retry-btn').addEventListener('click', () => {
+  resultCard.classList.add('hidden');
+  stage.classList.remove('hidden');
+  statusBanner.classList.remove('hidden');
+  capturedResult = null;
+  capturedFrameCanvas = null;
+  running = true;
+  requestAnimationFrame(loop);
+});
+
+document.getElementById('save-btn').addEventListener('click', async () => {
+  if (!capturedResult) return;
+  const consent = document.getElementById('consent-photo').checked;
+  const phone = document.getElementById('phone').value.trim();
+
+  const formData = new FormData();
+  if (phone) formData.append('phone', phone);
+  formData.append('detectedShape', capturedResult.shape);
+  formData.append('correctedShape', capturedResult.correctedShape || '');
+  formData.append('ratios', JSON.stringify(capturedResult.ratios));
+  formData.append('suggestedStyles', JSON.stringify(getSuggestedStyles(capturedResult.correctedShape || capturedResult.shape)));
+  formData.append('consentPhotos', String(consent));
+  if (consent && capturedFrameCanvas) {
+    const blob = await new Promise((resolve) => capturedFrameCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (blob) formData.append('photo', blob, 'scan.jpg');
+  }
+
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/face-scans', { method: 'POST', body: formData });
+    if (res.ok) {
+      btn.textContent = 'Saved';
+    } else {
+      btn.textContent = 'Could not save — try again';
+      btn.disabled = false;
+    }
+  } catch {
+    btn.textContent = 'Could not save — try again';
+    btn.disabled = false;
+  }
+});
+
+init();
+</script>
+</body>
+</html>

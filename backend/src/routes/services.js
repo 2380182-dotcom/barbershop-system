@@ -2,17 +2,18 @@ import { Router } from 'express';
 import { pool } from '../db/pool.js';
 import { logAudit } from '../lib/audit.js';
 import { requireRole } from '../middleware/auth.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
 
 const router = Router();
 
 router.use(requireRole('owner'));
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { rows } = await pool.query(`select * from services order by sort_order, created_at`);
   res.json({ services: rows });
-});
+}));
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const { name, durationMinutes, price, growOutDays, sortOrder } = req.body || {};
   if (!name || !durationMinutes) {
     return res.status(400).json({ error: 'name and durationMinutes are required' });
@@ -36,9 +37,9 @@ router.post('/', async (req, res) => {
   });
 
   res.status(201).json({ service: rows[0] });
-});
+}));
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', asyncHandler(async (req, res) => {
   const { name, durationMinutes, price, growOutDays, sortOrder, active } = req.body || {};
   const fields = [];
   const values = [];
@@ -77,9 +78,9 @@ router.put('/:id', async (req, res) => {
   });
 
   res.json({ service: rows[0] });
-});
+}));
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     `update services set active = false where id = $1 returning *`,
     [req.params.id]
@@ -96,6 +97,6 @@ router.delete('/:id', async (req, res) => {
   });
 
   res.json({ service: rows[0] });
-});
+}));
 
 export default router;

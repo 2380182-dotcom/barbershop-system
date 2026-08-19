@@ -8,6 +8,18 @@ import authRoutes from './routes/auth.js';
 import shopSettingsRoutes from './routes/shopSettings.js';
 import barbersRoutes from './routes/barbers.js';
 import servicesRoutes from './routes/services.js';
+import queueRoutes from './routes/queue.js';
+import displayRoutes from './routes/display.js';
+import customersRoutes from './routes/customers.js';
+import rosterRoutes from './routes/roster.js';
+import styleCardsRoutes from './routes/styleCards.js';
+import stylePresetsRoutes from './routes/stylePresets.js';
+import attendanceRoutes from './routes/attendance.js';
+import appointmentsRoutes from './routes/appointments.js';
+import messagesRoutes from './routes/messages.js';
+import dashboardRoutes from './routes/dashboard.js';
+import publicRoutes from './routes/public.js';
+import faceScansRoutes from './routes/faceScans.js';
 
 const PgSession = connectPgSimple(session);
 
@@ -39,6 +51,18 @@ export function createApp() {
   app.use('/api/shop-settings', shopSettingsRoutes);
   app.use('/api/barbers', barbersRoutes);
   app.use('/api/services', servicesRoutes);
+  app.use('/api/queue', queueRoutes);
+  app.use('/api/display', displayRoutes);
+  app.use('/api/customers', customersRoutes);
+  app.use('/api/roster', rosterRoutes);
+  app.use('/api/style-cards', styleCardsRoutes);
+  app.use('/api/style-presets', stylePresetsRoutes);
+  app.use('/api/attendance', attendanceRoutes);
+  app.use('/api/appointments', appointmentsRoutes);
+  app.use('/api/messages', messagesRoutes);
+  app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/public', publicRoutes);
+  app.use('/api/face-scans', faceScansRoutes);
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });

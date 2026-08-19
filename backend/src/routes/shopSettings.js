@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db/pool.js';
 import { logAudit } from '../lib/audit.js';
 import { requireRole } from '../middleware/auth.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
 
 const router = Router();
 
@@ -14,14 +15,20 @@ const EDITABLE_FIELDS = [
   'self_join_enabled',
   'appointment_lock_minutes',
   'miss_limit',
+  'messaging_mode',
+  'quiet_hours_start',
+  'quiet_hours_end',
+  'daily_message_cap',
+  'cost_per_message',
+  'public_booking_enabled',
 ];
 
-router.get('/', requireRole('owner'), async (req, res) => {
+router.get('/', requireRole('owner'), asyncHandler(async (req, res) => {
   const { rows } = await pool.query(`select * from shop_settings limit 1`);
   res.json({ shopSettings: rows[0] || null });
-});
+}));
 
-router.put('/', requireRole('owner'), async (req, res) => {
+router.put('/', requireRole('owner'), asyncHandler(async (req, res) => {
   const { rows: existingRows } = await pool.query(`select id from shop_settings limit 1`);
   if (!existingRows[0]) {
     return res.status(404).json({ error: 'Shop settings have not been seeded yet' });
@@ -54,6 +61,6 @@ router.put('/', requireRole('owner'), async (req, res) => {
   });
 
   res.json({ shopSettings: rows[0] });
-});
+}));
 
 export default router;

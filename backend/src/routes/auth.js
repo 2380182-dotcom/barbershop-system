@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { pool } from '../db/pool.js';
 import { logAudit } from '../lib/audit.js';
 import { requireAuth } from '../middleware/auth.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ const loginLimiter = rateLimit({
   message: { error: 'Too many login attempts. Try again later.' },
 });
 
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
@@ -38,15 +39,20 @@ router.post('/login', loginLimiter, async (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
-  req.session.user = { id: user.id, name: user.name, username: user.username, role: user.role };
+  let barberId = null;
+  if (user.role === 'barber') {
+    const { rows: barberRows } = await pool.query(`select id from barbers where user_id = $1`, [user.id]);
+    barberId = barberRows[0]?.id ?? null;
+  }
+  req.session.user = { id: user.id, name: user.name, username: user.username, role: user.role, barberId };
 
   await pool.query(`update users set last_login_at = now() where id = $1`, [user.id]);
   await logAudit({ userId: user.id, action: 'login_success', entity: 'user', entityId: user.id });
 
   res.json({ user: req.session.user });
-});
+}));
 
-router.post('/logout', requireAuth, async (req, res) => {
+router.post('/logout', requireAuth, asyncHandler(async (req, res) => {
   const userId = req.session.user.id;
   req.session.destroy((err) => {
     if (err) {
@@ -56,7 +62,7 @@ router.post('/logout', requireAuth, async (req, res) => {
     logAudit({ userId, action: 'logout', entity: 'user', entityId: userId }).catch(() => {});
     res.json({ ok: true });
   });
-});
+}));
 
 router.get('/me', (req, res) => {
   res.json({ user: req.session.user || null });
